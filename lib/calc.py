@@ -104,7 +104,7 @@ def calculate_cpd_distances(df, all_calculated_cpd, restore_tensor):
             if np.array_equal((cpd1*1e+6).astype(int), (cpd2*1e+6).astype(int)):
                 div = 0.0#0.0#0.0#1e-4#0.0
             else:
-                div = np.sqrt(jensenshannon(cpd1, cpd2))#
+                div = jensenshannon(cpd1, cpd2)#
 
             if not div >= 0.0:
                 print(cpd1)
