@@ -48,7 +48,7 @@ def encode_object_column(df):
 def equal_frequency_binning(df, bin_size):
     for column in df.select_dtypes(include=['float', 'int']):
         unique_values = len(df[column].unique())
-        if unique_values >= bin_size:  # 2より大きい場合のみビニングを適用
+        if unique_values >= bin_size:  # 設定したbin_sizeよりユニークな値が多い場合
             df[column] = pd.qcut(df[column], q=bin_size, labels=False, duplicates='drop')
     return df
 
@@ -129,16 +129,10 @@ def normalize_all_columns(df):
     
     return df, restore_tensor
 
-def dataframe_to_dataset(df, label_column=None):
-    if label_column is not None:
-        # If label_column is specified, separate the dataframe into data and labels
-        labels = df[label_column].values
-        data = df.drop(columns=[label_column]).values
-    else:
-        # If label_column is not specified, use sequential numbers as labels
-        labels = np.arange(len(df))
-        data = df.values
-    
+def dataframe_to_dataset(df):
+    labels = np.arange(len(df))#dummy
+    data = df.values
+
     # Convert data and labels to PyTorch tensors
     data_tensor = torch.tensor(data, dtype=torch.float32)
     labels_tensor = torch.tensor(labels, dtype=torch.float32)

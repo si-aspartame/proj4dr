@@ -68,10 +68,8 @@ def remove_diagonal(tensor):
 
 def calculate_P(X, cpd_distances, restore_tensor):
     D = C.get_distance_matrix_of_batch_optimized(X, cpd_distances, restore_tensor)
-    D = remove_diagonal(D)
     return D
 
 def calculate_Q(Y):
-    D = 1 + torch.cdist(Y, Y, p=2)**2
-    D = remove_diagonal(D)
+    D = torch.cdist(Y, Y, p=1)
     return D

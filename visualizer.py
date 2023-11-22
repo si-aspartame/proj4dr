@@ -7,15 +7,12 @@ from sklearn.preprocessing import LabelEncoder
 
 # original.csvから元のデータフレームを読み込み
 #%%
-original_df = U.loading_data("adult")
+original_df = pd.read_csv('original.csv', index_col=0)
 #%%
 print(original_df.dtypes)
 
-#%%
-original_df = original_df.iloc[:len(original_df)-(len(original_df)%10)]
-
 # array.csvからt-SNE用のデータを読み込み
-tsne_data = pd.read_csv('array.csv', header=None)
+tsne_data = pd.read_csv('encoded.csv', header=None)
 
 # t-SNEで次元削減
 tsne = TSNE(n_components=2, random_state=0)
