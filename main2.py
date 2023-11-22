@@ -1,4 +1,3 @@
-
 #%%
 import time
 import os
@@ -6,11 +5,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.optim as optim
+import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import lib.calc as C
-import lib.tsne as TSNE
+import lib.encoder as E
 import lib.util as U
 import torch.nn.functional as F
 
@@ -21,8 +21,8 @@ import pickle
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 #%%
-data_name = "creditcard"
-batch_size = 1000
+data_name = "adult"
+batch_size = 64
 nb_epoch = 1000
 perplexity = 50
 learning_rate = 1e-3
@@ -30,7 +30,7 @@ max_patience = 10  # Maximum number of epochs to wait for improvement
 percentage_as_neighbor = 0.05
 
 #%%
-bin_size = 30
+bin_size = 20
 low_freq_threshold = 0
 
 #%%
@@ -47,7 +47,7 @@ df = df.loc[:, (df != df.iloc[0]).any()]#無駄な列を落とす
 df = U.reduce_mem_usage(df)
 df.describe()
 label_column = df.columns[-1]
-
+df.to_csv("original.csv")
 # %%
 list_of_entire_fdt = {n: df[c].value_counts() for n, c in enumerate(df.columns)}
 all_calculated_cpd = C.calculate_all_cpd(df, list_of_entire_fdt, restore_tensor)
@@ -57,32 +57,10 @@ cpd_distances = C.calculate_cpd_distances(df, all_calculated_cpd, restore_tensor
 print(f"{U.get_tensor_memory_size(cpd_distances)} GB")
 
 #%%
-if os.path.exists(f'precomputed_beta_{batch_size}_{perplexity}_{int(percentage_as_neighbor*100)}.pkl'):
-    # 保存されたprecomputed_betaを読み込む
-    with open(f'precomputed_beta_{batch_size}_{perplexity}_{int(percentage_as_neighbor*100)}.pkl', 'rb') as f:
-        precomputed_beta_values = pickle.load(f)
-    df['precomputed_beta'] = precomputed_beta_values
-else:
-    # precomputed_betaが存在しない場合、新しく計算
-    #int(len(df)*percentage_as_neighbor)
-    df['precomputed_beta'] = C.compute_beta2(df, perplexity, int(len(df)*percentage_as_neighbor), cpd_distances, restore_tensor)
-    # そして保存
-    with open(f'precomputed_beta_{batch_size}_{perplexity}_{int(percentage_as_neighbor*100)}.pkl', 'wb') as f:
-        pickle.dump(df['precomputed_beta'].values, f)
-print(df['precomputed_beta'].values)
-# max_value = df['precomputed_beta'].max()
-# second_largest_value = df['precomputed_beta'].nlargest(2).iloc[-1]
-# df['precomputed_beta'] = df['precomputed_beta'].replace(max_value, second_largest_value)
-
-#%%
-df.sort_values(by='precomputed_beta', ascending=False).head(100)
-
-
-#%%
 train_dataset = U.dataframe_to_dataset(df, label_column=label_column)
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-model = TSNE.Net(len(df.columns)-1).to(device)
+model = E.Net(len(df.columns)-1).to(device)
 optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
 
 #%%
@@ -90,22 +68,20 @@ print("Training Net..")
 print(f"total_iteration:{int(len(df)/batch_size)}it")
 best_train_loss = float('inf')  #Initialize the best validation loss to infinity
 patience = 0  #Initialize patience counter
-
+mse = nn.MSELoss()
 for epoch in range(nb_epoch):
     total_loss = 0  # Initialize total loss for this epoch
     num_batches = 0  # Initialize batch count for this epoch
     for i, (data, target) in tqdm(enumerate(train_loader)):
         data = data.view(data.shape[0], -1).to(device)
-        # 分離: データとbeta
-        actual_data, batch_beta = data[:, :-1], data[:, -1]
         # Pの計算にbatch_betaを使用
-        P = TSNE.calculate_P(actual_data, batch_beta, cpd_distances, restore_tensor).to(device)  # 高次元空間での確率分布
+        P = E.calculate_P(data, cpd_distances, restore_tensor).to(device)  # 高次元空間での確率分布
         optimizer.zero_grad()
         output = model(data)
-        Q = TSNE.calculate_Q(output).to(device)#低次元空間での確率分布
+        Q = E.calculate_Q(output).to(device)#低次元空間での確率分布
         # kl_per_point = torch.sum(P * (torch.log(P) - torch.log(Q)), dim=1)
         # loss = torch.mean(kl_per_point)
-        loss = C.js_divergence(P, Q)#C.spearman_loss(P*100000, Q*100000)#F.kl_div(torch.log(Q), P, reduction='mean')##
+        loss = mse(P, Q)
         loss.backward()
         optimizer.step()
         
@@ -114,6 +90,8 @@ for epoch in range(nb_epoch):
 
     avg_loss = total_loss / num_batches  # Calculate the average loss for this epoch
     print(f"Epoch {epoch+1}/{nb_epoch}, Average Loss: {avg_loss}")
+    print(P[1, :3])
+    print(Q[1, :3])
 
     # Early Stopping Check based on Training Loss
     if avg_loss < best_train_loss:
@@ -141,57 +119,5 @@ with torch.no_grad():
 # original_df の各カラムを使って all_outputs の点を着色
 all_outputs = np.concatenate(all_outputs, axis=0)
 all_outputs = np.array(all_outputs)
-
-reversed_columns = original_df.columns[::-1]  # ここで列を逆順にします
-
-if len(reversed_columns) < 30:
-    n_cols = 6
-    n_rows = int(np.ceil(len(reversed_columns) / n_cols))
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 5 * n_rows), squeeze=False)
-else:
-    fig, axes = plt.subplots(1, 1, figsize=(5, 5))
-    axes = np.array([[axes]])
-
-for i, column in enumerate(reversed_columns):  # ここで逆順にした列を使います
-    if len(reversed_columns) >= 30:
-        ax = axes[0, 0]
-    else:
-        row = i // n_cols
-        col = i % n_cols
-        ax = axes[row, col]
-
-    # カラーマップの選択
-    if original_df[column].dtype == 'object':  # カテゴリカルデータの場合
-        cmap = plt.cm.tab20
-        unique_categories = original_df[column].unique()[:10]
-        
-        for idx, category in enumerate(unique_categories):
-            subset = all_outputs[original_df[column] == category]
-            ax.scatter(subset[:, 0], subset[:, 1], color=cmap(idx / len(unique_categories)), label=str(category), s=5)
-
-        ax.legend()
-    else:  # 数値データの場合
-        cmap = plt.cm.viridis
-        colors = original_df[column]
-        sc = ax.scatter(all_outputs[:, 0], all_outputs[:, 1], c=colors, cmap=cmap, s=5)
-        fig.colorbar(sc, ax=ax)
-
-    ax.set_title(f'{column}')
-
-    if len(original_df.columns) >= 30:
-        break  # 1つの図だけを描画したらループを抜ける
-
-# 余分なサブプロットを削除
-if len(original_df.columns) < 30 and len(original_df.columns) % n_cols != 0:
-    for i in range(len(original_df.columns), n_rows * n_cols):
-        fig.delaxes(axes.flatten()[i])
-
-plt.tight_layout()
-plt.savefig("output.png")
-plt.show()
-
-# %%
-end_time = time.time()
-elapsed_time = end_time - start_time
-print(f"Elapsed time: {elapsed_time} seconds")
-# %%
+print(all_outputs.shape)
+np.savetxt("array.csv", all_outputs, delimiter=",")

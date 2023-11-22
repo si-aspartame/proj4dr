@@ -10,7 +10,7 @@ from tqdm import tqdm
 from sklearn.neighbors import NearestNeighbors
 
 import lib.util as U
-import lib.tsne as T
+import lib.encoder as E
 import torch.nn.functional as F
 import torchsort
 
@@ -104,7 +104,7 @@ def calculate_cpd_distances(df, all_calculated_cpd, restore_tensor):
             if np.array_equal((cpd1*1e+6).astype(int), (cpd2*1e+6).astype(int)):
                 div = 0.0#0.0#0.0#1e-4#0.0
             else:
-                div = jensenshannon(cpd1, cpd2)#
+                div = np.sqrt(jensenshannon(cpd1, cpd2))#
 
             if not div >= 0.0:
                 print(cpd1)
@@ -112,7 +112,7 @@ def calculate_cpd_distances(df, all_calculated_cpd, restore_tensor):
                 div = 0.0
                 raise ValueError
 
-            cpd_distances[num_c_A, num_c_B, unique_A1, unique_A2] = div# / len(df.columns)
+            cpd_distances[num_c_A, num_c_B, unique_A1, unique_A2] = div
             
     return cpd_distances
 
